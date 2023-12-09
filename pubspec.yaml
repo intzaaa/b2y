@@ -1,0 +1,19 @@
+name: b2y
+description: A sample command-line application with basic argument parsing.
+version: 0.0.1
+# repository: https://github.com/my_org/my_repo
+
+environment:
+  sdk: ^3.1.0
+
+# Add regular dependencies here.
+dependencies:
+  args: ^2.4.2
+  http: ^1.1.0
+  prompts: ^2.0.0
+  googleapis: ^12.0.0
+  googleapis_auth: ^1.4.1
+
+dev_dependencies:
+  lints: ^2.1.0
+  test: ^1.24.0
