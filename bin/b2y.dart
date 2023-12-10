@@ -33,8 +33,10 @@ class Static {
       Platform.environment['bilibili_cookie'] ?? '';
   static final int bilibiliMemberId =
       int.parse(Platform.environment['bilibili_mid'] ?? '473013658');
-  static final String youtubeAuthJSON =
-      Platform.environment['youtube_auth_json']!;
+  static final String youtubeOAuthClientId =
+      Platform.environment['youtube_oauth_client_id']!;
+  static final String youtubeOAuthClientSecret =
+      Platform.environment['youtube_oauth_client_secret']!;
   static final String youtubeChannelId =
       Platform.environment['youtube_channel_id'] ?? 'UC7vRSbEDoaVf7uJY-IeCzVA';
   static final int youtubeDefaultCategoryId =
@@ -43,12 +45,12 @@ class Static {
 
 void main(List<String> args) async {
   final v = (await Bilibili().videoList)[0];
-  Youtube().uploadVideo(
+  await Youtube().uploadVideo(
       (await RemoteFile(Uri.parse(v.url)).stream).$1,
       (await RemoteFile(Uri.parse(v.url)).stream).$2,
       v.snippet!.title!,
-      27,
       v.snippet!.description!,
+      27,
       v.id!);
 }
 
@@ -112,41 +114,51 @@ class Bilibili {
 }
 
 class Youtube {
-  /// Use service account credentials to obtain oauth credentials.
-  Future<AuthClient> _obtainCredentials() async {
-    final auth = jsonDecode(Static.youtubeAuthJSON);
-    var accountCredentials = ServiceAccountCredentials.fromJson(auth);
-    print(auth);
-    var scopes = [
-      'https://www.googleapis.com/auth/youtube',
-      'https://www.googleapis.com/auth/youtube.force-ssl',
-      'https://www.googleapis.com/auth/youtube.channel-memberships.creator',
-      'https://www.googleapis.com/auth/youtubepartner',
-      'https://www.googleapis.com/auth/youtube.readonly',
-      'https://www.googleapis.com/auth/youtube.upload',
-    ];
-    return await clientViaServiceAccount(accountCredentials, scopes);
+// Use the oauth2 code grant server flow functionality to
+// get an authenticated and auto refreshing client.
+  Future<AutoRefreshingAuthClient> _obtainCredentials() async {
+    final client = await clientViaUserConsent(
+      ClientId(Static.youtubeOAuthClientId, Static.youtubeOAuthClientSecret),
+      [
+        'https://www.googleapis.com/auth/youtube',
+        'https://www.googleapis.com/auth/youtube.force-ssl',
+        'https://www.googleapis.com/auth/youtube.channel-memberships.creator',
+        'https://www.googleapis.com/auth/youtubepartner',
+        'https://www.googleapis.com/auth/youtube.readonly',
+        'https://www.googleapis.com/auth/youtube.upload',
+      ],
+      (String url) {
+        print('Please go to the following URL and grant access:');
+        print(url);
+      },
+    );
+    return client;
   }
 
   Future<List> get videoList async {
-    final yt = YouTubeApi(await _obtainCredentials());
+    final client = await _obtainCredentials();
+    final yt = YouTubeApi(client);
     // https://developers.google.com/youtube/v3/docs/search/list#parameters
     final res =
         await yt.search.list(['snippet'], channelId: Static.youtubeChannelId);
     var items = res.items!;
+    client.close();
     return items as List;
   }
 
   /// https://developers.google.com/youtube/v3/docs/videos/insert
   uploadVideo(Stream<List<int>> stream, int length, String title,
-      int categoryId, String description, String id) async {
-    final yt = YouTubeApi(await _obtainCredentials());
+      String description, int categoryId, String id) async {
+    final client = await _obtainCredentials();
+    final yt = YouTubeApi(client);
     final video = Video(
         snippet: VideoSnippet()
+          ..title = title
           ..channelId = Static.youtubeChannelId
           ..description = '$description\n(DO NOT EDIT THIS LINE) ${id.hashCode}'
           ..categoryId = categoryId.toString());
     final media = Media(stream, length);
-    yt.videos.insert(video, ['snippet'], uploadMedia: media);
+    await yt.videos.insert(video, ['snippet'], uploadMedia: media);
+    client.close();
   }
 }
