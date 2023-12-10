@@ -1,1 +1,10 @@
-A sample command-line application providing basic argument parsing with an entrypoint in `bin/`.
+# b2y
+
+一个命令行工具，帮助你将哔哩哔哩空间中的视频上传到Youtube。
+
+## Todo
+
+- 获取哔哩哔哩多p视频每一个p的play_url
+- 合并哔哩哔哩多P视频到一个视频并在Youtube中分章节
+- 允许设置最多上传数
+- 录制示例OAuth发布视频
