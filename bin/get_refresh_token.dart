@@ -13,7 +13,7 @@ void main() async {
     'https://www.googleapis.com/auth/youtube.upload',
   ], (String url) {
     print('Please go to the following URL and grant access:');
-    print('  => $url');
+    print(url);
     print('');
   });
   print('Your refresh token:');

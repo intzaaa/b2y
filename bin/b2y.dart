@@ -44,14 +44,8 @@ class Static {
 }
 
 void main(List<String> args) async {
-  final v = (await Bilibili().videoList)[0];
-  await Youtube().uploadVideo(
-      (await RemoteFile(Uri.parse(v.url)).stream).$1,
-      (await RemoteFile(Uri.parse(v.url)).stream).$2,
-      v.snippet!.title!,
-      v.snippet!.description!,
-      27,
-      v.id!);
+  print(await Youtube().videoList);
+  // print(compareDiffence(await Bilibili().videoList, await Youtube().videoList));
 }
 
 class RemoteFile {
@@ -135,19 +129,26 @@ class Youtube {
     return client;
   }
 
-  Future<List> get videoList async {
+  Future<List<Video>> get videoList async {
     final client = await _obtainCredentials();
     final yt = YouTubeApi(client);
     // https://developers.google.com/youtube/v3/docs/search/list#parameters
     final res =
         await yt.search.list(['snippet'], channelId: Static.youtubeChannelId);
-    var items = res.items!;
+    var items = res.items!.where((element) => element.id!.videoId != null);
+    List<Video> list = [];
+    for (var item in items) {
+      list.add(Video(
+          snippet: VideoSnippet()
+            ..title = item.snippet!.title
+            ..description = item.snippet!.description));
+    }
     client.close();
-    return items as List;
+    return list;
   }
 
   /// https://developers.google.com/youtube/v3/docs/videos/insert
-  uploadVideo(Stream<List<int>> stream, int length, String title,
+  void uploadVideo(Stream<List<int>> stream, int length, String title,
       String description, int categoryId, String id) async {
     final client = await _obtainCredentials();
     final yt = YouTubeApi(client);
@@ -161,4 +162,18 @@ class Youtube {
     await yt.videos.insert(video, ['snippet'], uploadMedia: media);
     client.close();
   }
+}
+
+List<Video> compareDiffence(
+    List<BilibiliVideo> bilibiliVideoList, List<Video> youtubeVideoList) {
+  return bilibiliVideoList.where((item) {
+    return youtubeVideoList.contains(((element) {
+      final String description = element.snippet!.description!;
+      if (description.split('\n').last.contains(item.id.hashCode.toString())) {
+        return false;
+      } else {
+        return true;
+      }
+    }));
+  }).toList();
 }
