@@ -1,3 +1,5 @@
+/// The above Dart code prompts the user to enter their client id and client secret, then uses the
+/// Google APIs client library to obtain a refresh token for accessing YouTube APIs.
 import 'package:prompts/prompts.dart' as prompts;
 import 'package:googleapis_auth/auth_io.dart';
 

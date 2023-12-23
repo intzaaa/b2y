@@ -6,7 +6,9 @@ import 'package:http/http.dart' as http;
 // import 'package:prompts/prompts.dart';
 import 'package:googleapis/youtube/v3.dart';
 // import 'package:googleapis_auth/googleapis_auth.dart';
+import 'package:b2y/video.dart';
 
+/// The `Static` class contains static constants and variables related to the Bilibili and YouTube APIs.
 class Static {
   static const String bilibili = 'https://api.bilibili.com';
   static final Map<String, String> bilibiliHeaders = {
@@ -37,6 +39,8 @@ class Static {
       Platform.environment['youtube_oauth_client_id']!;
   static final String youtubeOAuthClientSecret =
       Platform.environment['youtube_oauth_client_secret']!;
+  static final String youtubeOAuthRefreshToken =
+      Platform.environment['youtube_oauth_refresh_token']!;
   static final String youtubeChannelId =
       Platform.environment['youtube_channel_id'] ?? 'UC7vRSbEDoaVf7uJY-IeCzVA';
   static final int youtubeDefaultCategoryId =
@@ -44,25 +48,40 @@ class Static {
 }
 
 void main(List<String> args) async {
-  print(await Youtube().videoList);
-  // print(compareDiffence(await Bilibili().videoList, await Youtube().videoList));
+  final videos =
+      compareDiffence(await Bilibili().videoList, await Youtube().videoList);
+  videos.forEach((element) async {
+    final remoteFile = RemoteFile(Uri.parse(await element.url()));
+    final file = await remoteFile.download();
+  });
 }
 
 class RemoteFile {
   RemoteFile(this.uri);
   final Uri uri;
-  Future<(Stream<List<int>>, int)> get stream async {
+
+  Future<({Stream<List<int>> stream, int length})> get stream async {
     final http.Client client = http.Client();
     final res = await client.send(http.Request('GET', uri));
-    return (res.stream, res.contentLength ?? -1);
+    return (stream: res.stream, length: res.contentLength ?? -1);
+  }
+
+  Future<File> download() async {
+    final file = File(uri.path.split('/').last);
+    await file.openWrite().addStream((await stream).stream);
+    return file;
   }
 }
 
 class BilibiliVideo extends Video {
   BilibiliVideo(
-      {required String id, required VideoSnippet snippet, required this.url})
+      {required String id,
+      required VideoSnippet snippet,
+      required this.url,
+      this.ps})
       : super(id: id, snippet: snippet);
-  String url;
+  List<BilibiliVideo>? ps;
+  Future<String> Function() url;
 }
 
 class Bilibili {
@@ -76,18 +95,38 @@ class Bilibili {
     if (res['code'] == 0) {
       final List vlist = res['data']['list']['vlist'];
       for (var item in vlist) {
-        final String bvid = item['bvid'];
-        final int cid = jsonDecode((await client.get(
-                Uri.parse(
-                    'https://api.bilibili.com/x/player/pagelist?bvid=$bvid'),
-                headers: Static.bilibiliHeaders))
-            .body)['data'][0]['cid'];
-        final Map playUri = jsonDecode((await client.get(
-                Uri.parse(
-                    'https://api.bilibili.com/x/player/playurl?cid=$cid&bvid=$bvid&fnval=1&platform=html5&high_quality=1&qn=80'),
-                headers: Static.bilibiliHeaders))
-            .body)['data'];
-        item['play_uri'] = playUri;
+        Future<int> cid(bvid) async {
+          return jsonDecode((await client.get(
+                  Uri.parse(
+                      'https://api.bilibili.com/x/player/pagelist?bvid=$bvid'),
+                  headers: Static.bilibiliHeaders))
+              .body)['data'][0]['cid'];
+        }
+
+        Future<String> playUrl(cid) async {
+          final Map playData = jsonDecode((await client.get(
+                  Uri.parse(
+                      'https://api.bilibili.com/x/player/playurl?cid=$cid&bvid=$bvid&fnval=1&platform=html5&high_quality=1&qn=80'),
+                  headers: Static.bilibiliHeaders))
+              .body)['data'];
+          return playData['durl'][0]['url'];
+        }
+
+        item['play_uri'] = playUrl;
+
+        Future<List<Map>> pages(bvid) async {
+          final List<Map> pages = jsonDecode((await client.get(
+                  Uri.parse(
+                      'https://api.bilibili.com/x/web-interface/view?bvid=$bvid'),
+                  headers: Static.bilibiliHeaders))
+              .body)['data']['pages'];
+          for (var item in pages) {
+            item['play_url'] = playUrl(item['cid']);
+          }
+          return pages;
+        }
+
+        item['pages'] = pages;
       }
       final List<BilibiliVideo> list = [];
       for (var item in vlist) {
@@ -97,7 +136,8 @@ class Bilibili {
               ..title = item['title']
               ..description = item['description']
               ..categoryId = Static.youtubeDefaultCategoryId.toString(),
-            url: item['play_uri']['durl'][0]['url']);
+            url: item['play_uri'],
+            ps: item['pages']);
         list.add(video);
       }
       return list;
@@ -111,22 +151,20 @@ class Youtube {
 // Use the oauth2 code grant server flow functionality to
 // get an authenticated and auto refreshing client.
   Future<AutoRefreshingAuthClient> _obtainCredentials() async {
-    final client = await clientViaUserConsent(
-      ClientId(Static.youtubeOAuthClientId, Static.youtubeOAuthClientSecret),
-      [
-        'https://www.googleapis.com/auth/youtube',
-        'https://www.googleapis.com/auth/youtube.force-ssl',
-        'https://www.googleapis.com/auth/youtube.channel-memberships.creator',
-        'https://www.googleapis.com/auth/youtubepartner',
-        'https://www.googleapis.com/auth/youtube.readonly',
-        'https://www.googleapis.com/auth/youtube.upload',
-      ],
-      (String url) {
-        print('Please go to the following URL and grant access:');
-        print(url);
-      },
-    );
-    return client;
+    var client = http.Client();
+    var id =
+        ClientId(Static.youtubeOAuthClientId, Static.youtubeOAuthClientSecret);
+    var credentials = AccessCredentials(
+        AccessToken('Bearer', '', DateTime.now()),
+        Static.youtubeOAuthRefreshToken, [
+      'https://www.googleapis.com/auth/youtube',
+      'https://www.googleapis.com/auth/youtube.force-ssl',
+      'https://www.googleapis.com/auth/youtube.channel-memberships.creator',
+      'https://www.googleapis.com/auth/youtubepartner',
+      'https://www.googleapis.com/auth/youtube.readonly',
+      'https://www.googleapis.com/auth/youtube.upload',
+    ]);
+    return autoRefreshingClient(id, credentials, client);
   }
 
   Future<List<Video>> get videoList async {
@@ -164,7 +202,7 @@ class Youtube {
   }
 }
 
-List<Video> compareDiffence(
+List<BilibiliVideo> compareDiffence(
     List<BilibiliVideo> bilibiliVideoList, List<Video> youtubeVideoList) {
   return bilibiliVideoList.where((item) {
     return youtubeVideoList.contains(((element) {
